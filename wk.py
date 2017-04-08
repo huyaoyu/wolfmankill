@@ -27,10 +27,14 @@ ROLE_PROPHET   = 3
 ROLE_WITCH     = 4
 ROLE_HUNTER    = 5
 ROLE_GUARDIAN  = 6
+ROLE_SHERIFF   = 7
 
 ROLE_TYPE_PEASANT = 0
 ROLE_TYPE_WOLF    = 1
 ROLE_TYPE_WIZARD  = 2
+ROLE_TYPE_DUMMY   = 3
+
+SHERIFF_ID = 0
 
 NUM_WOLF    = 4
 NUM_PEASANT = 4
@@ -122,16 +126,29 @@ class Player(object):
 	"""Base class of player."""
 	def __init__(self, id, t, r, name):
 		
-		self.id       = id
-		self.state    = 1 # Inactive.
-		self.killed   = 0
-		self.saved    = 0 # Used for the Witch.
-		self.poisoned = 0
-		self.type     = t
-		self.role     = r
-		self.name     = name
-		self.guarded  = 0
-		self.hunted   = 0
+		self.id        = id
+		self.state     = 1 # Inactive.
+		self.dead      = 0
+		self.killed    = 0
+		self.saved     = 0 # Used for the Witch.
+		self.poisoned  = 0
+		self.type      = t
+		self.role      = r
+		self.name      = name
+		self.guarded   = 0
+		self.hunted    = 0
+		self.isSheriff = 0
+
+	def is_dead(self):
+		if self.poisoned == 1 or self.hunted == 1:
+			self.dead = 1
+		elif self.killed == 1 and self.saved == 0 and self.guarded == 0:
+			self.dead = 1
+		elif self.saved == 1 and self.guarded == 1:
+			self.dead = 1
+
+		return self.dead
+
 		
 	def set_state(self, s):
 		"""
@@ -506,6 +523,41 @@ class Guardian(Player):
 		self.lastGuarded = val
 
 		print "Please close your eyes."
+
+
+class Sheriff(Player):
+	"""Class for the Sheriff"""
+	def __init__(self, id):
+		super(Sheriff, self).__init__(id, ROLE_TYPE_DUMMY, ROLE_SHERIFF, "Sheriff")
+
+		self.idx = -1
+		self.dead = 0
+
+	def elect(self, p):
+		print "The elected Sheriff is (input 0 for no Sheriff.)"
+		p[self.idx].isSheriff = 0
+
+		val = integer_from_raw_input(flagLimit = 1, limitMin = 0, limitMax = TOTAL_PLAYERS)
+		self.set_player_id(val)
+
+		if val != 0:
+			playerIdx = find_player_by_id(p, val)
+			self.set_palyer_idx(playerIdx)
+			p[playerIdx].isSheriff = 1
+
+
+	def set_player_id(self, id):
+		self.id = id
+
+	def set_palyer_idx(self, idx):
+		self.idx = idx
+
+	def perform(self, rn):
+		print "Let the Sheriff decide the staring player."
+		
+	def perform_dead(self, rn):
+		print "Let the Sheriff select the new Sheriff."
+
 		
 def check_game_status(p):
 	"""Check the status of the game. 0 for end of game. 1 for game could continue."""
@@ -514,19 +566,25 @@ def check_game_status(p):
 	nWizards  = 0
 	nWolves   = 0
 
+	voteLimit_Wolfmen    = 0
+	voteLimit_NonWolfmen = 0
+
 	for player in p:
-		if player.state == 1 and player.poisoned == 0 and player.hunted == 0:
-			if (player.killed == 0 and not ( player.saved == 1 and player.guarded == 1 )) or \
-			(player.killed == 1 and player.saved == 1 and player.guarded == 0) or \
-			(player.killed == 1 and player.saved == 0 and player.guarded == 1):
+		if player.state == 1:
+			if player.is_dead() == 0:
 				if player.type == ROLE_TYPE_PEASANT:
 					nPeasants = nPeasants + 1
+					voteLimit_NonWolfmen = voteLimit_NonWolfmen + 1 + 0.5 * player.isSheriff
 				elif player.type == ROLE_TYPE_WIZARD:
 					nWizards = nWizards + 1
+					voteLimit_NonWolfmen = voteLimit_NonWolfmen + 1 + 0.5 * player.isSheriff
 				elif player.type == ROLE_TYPE_WOLF:
 					nWolves = nWolves + 1
+					voteLimit_Wolfmen = voteLimit_Wolfmen + 1 + 0.5 * player.isSheriff
+
 
 	print "Peasant: %d, Wizards: %d, Wolves: %d" % (nPeasants, nWizards, nWolves)
+	print "Vote limit: Wolfmen %1.1f, Non-Wolfmen %1.1f." % (voteLimit_Wolfmen, voteLimit_NonWolfmen)
 
 	if nPeasants == 0 or nWizards == 0 or nWolves == 0:
 		return 0
@@ -538,13 +596,11 @@ def flush_players(p):
 	"""Flush the states of the players."""
 
 	for player in p:
-		if player.poisoned == 1 or player.hunted == 1:
+		if player.is_dead() == 1:
 			player.state = 0
-		elif player.saved == 1 and player.guarded == 1:
-			player.state = 0
-		elif player.killed == 1:
-			if player.saved == 0 and player.guarded == 0:
-				player.state = 0
+
+		if player.state == 0:
+			player.dead = 1
 
 		player.reset()
 
@@ -577,7 +633,7 @@ def show_last_night_info(p):
 		print "Player No. %d was dead." % (players[idxPoisoned].id)
 
 	if idxHunted != -1:
-		print "Player No. %d was dead." % (players[idxHunted].id)
+		print "Player No. %d was dead (Hunted by the Hunter)." % (players[idxHunted].id)
 
 		idxHunter = find_player_by_role(p, ROLE_HUNTER)
 
@@ -597,12 +653,12 @@ def show_debug_info(p, verbose = 1):
 	for player in p:
 
 		if verbose == 1:
-			print "idx = %2d, id = %2d, state = %d, killed = %d, saved = %d, poisoned = %d, hunted = %d, guarded = %d, name = %s." %\
-			 (i, player.id, player.state, player.killed, player.saved, player.poisoned, player.hunted, player.guarded, player.name)
+			print "idx = %2d, id = %2d (%9s %d), state = %d, killed = %d, saved = %d, poisoned = %d, hunted = %d, guarded = %d." %\
+			 (i, player.id, player.name, player.isSheriff, player.state, player.killed, player.saved, player.poisoned, player.hunted, player.guarded)
 		else:
 			if player.state == 1:
-				print "idx = %2d, id = %2d, state = %d, killed = %d, saved = %d, poisoned = %d, hunted = %d, guarded = %d, name = %s." %\
-			 	(i, player.id, player.state, player.killed, player.saved, player.poisoned, player.hunted, player.guarded, player.name)
+				print "idx = %2d, id = %2d (%9s %d), state = %d, killed = %d, saved = %d, poisoned = %d, hunted = %d, guarded = %d." %\
+			 	(i, player.id, player.name, player.isSheriff, player.state, player.killed, player.saved, player.poisoned, player.hunted, player.guarded)
 
 		i = i + 1
 
@@ -640,6 +696,9 @@ if __name__ == '__main__':
 	players[10] = Guardian(seq[10])
 	players[11] = Hunter(seq[11])
 
+	# The Sheriff
+	sh = Sheriff(SHERIFF_ID)
+
 	print_delimiter("#")
 
 	for i in range(TOTAL_PLAYERS):
@@ -667,6 +726,8 @@ if __name__ == '__main__':
 
 		sta = check_game_status(players)
 
+		# ==================== Night. ==========================
+
 		print "It's dark in the night. Please close your eyes."
 
 		# Guardian action.
@@ -691,8 +752,10 @@ if __name__ == '__main__':
 
 		print_delimiter("#")
 
+		# ========== Election of the Sheriff. ==============
+
 		if roundNumber == 1:
-			print "Please elect the police officer."
+			print "Please elect the Sheriff."
 
 			print "Starting player ID is %d." % (random.randint(1, TOTAL_PLAYERS))
 
@@ -703,7 +766,8 @@ if __name__ == '__main__':
 			else:
 				print "in clockwise direction."
 
-			str = raw_input()
+			sh.elect(players)
+
 			print "Please close your eyes."
 			str = raw_input()
 
@@ -717,19 +781,36 @@ if __name__ == '__main__':
 
 		print_delimiter("#")
 
+		show_last_night_info(players)
+		show_debug_info(players, verbose)
+
+		# ================== Day time. ===========================
+
 		sta = check_game_status(players)
 
 		if sta == 0:
 			print "Game over!"
 			sys.exit()
 
+		print_delimiter("#")
+
 		print "Night No. %d." % (roundNumber)
 
-		show_last_night_info(players)
-		show_debug_info(players, verbose)
-		print "Flush..."
+		# ================= Change the Sheriff. =====================
 
-		# Voting stage.
+		if sh.id != 0:
+			if players[sh.idx].dead == 1:
+				sh.perform_dead(roundNumber)
+
+				sh.elect(players)
+
+		print_delimiter("#")
+
+		# ============== Sherfiff action. ========================
+		if sh.id != 0:
+			sh.perform(roundNumber)
+
+		# ============== Voting stage. ======================
 
 		print "Voting stage."
 
@@ -767,6 +848,15 @@ if __name__ == '__main__':
 				sys.exit()
 			else:
 				print "Game continue."
+
+		# ================= Change the Sheriff. =====================
+
+		if sh.id != 0:
+			print_delimiter("#")
+			if players[sh.idx].dead == 1:
+				sh.perform_dead(roundNumber)
+
+				sh.elect(players)
 
 		print_delimiter("#")
 
