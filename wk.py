@@ -16,11 +16,13 @@
 
 import sys
 import random
+from copy import deepcopy
 
 
 # Constants
 
 ROLE_UNDEFINED = 0
+ROLE_REFEREE   = 0
 ROLE_WOLF      = 1
 ROLE_PEASANT   = 2
 ROLE_PROPHET   = 3
@@ -29,12 +31,14 @@ ROLE_HUNTER    = 5
 ROLE_GUARDIAN  = 6
 ROLE_SHERIFF   = 7
 
-ROLE_TYPE_PEASANT = 0
-ROLE_TYPE_WOLF    = 1
-ROLE_TYPE_WIZARD  = 2
-ROLE_TYPE_DUMMY   = 3
+ROLE_TYPE_REFEREE = 0
+ROLE_TYPE_PEASANT = 1
+ROLE_TYPE_WOLF    = 2
+ROLE_TYPE_WIZARD  = 3
+ROLE_TYPE_DUMMY   = 4
 
 SHERIFF_ID = 0
+REFEREE_ID = 0
 
 NUM_WOLF    = 4
 NUM_PEASANT = 4
@@ -198,20 +202,66 @@ class Player(object):
 
 		print "ID = %d" % (self.id)
 
-	def perform(self, rn):
+	def perform(self, p, rn):
 		"""
 		Perform the player's action.
 
 		rn: the round number, integer, starts from 1.
 		"""
 
+	def take_effect(self, p):
+		"""Take effect of the performed action."""
+
+class Referee(Player):
+	"""Class of the Referee."""
+	def __init__(self, id):
+		super(Referee, self).__init__(id, ROLE_TYPE_REFEREE, ROLE_REFEREE, "Referee")
+	
+		self.toVote        = 0
+		self.votedPlayerId = 0
+		self.toFlush       = 0
+		self.votedPlayerIdx = -1
+
+	def set_vote(self):
+		self.toVote = 1
+
+	def clear_vote(self):
+		self.toVote = 0
+
+	def set_flush(self):
+		self.toFlush = 1
+
+	def clear_flush(self):
+		self.toFlush = 0
+
+	def vote(self, p, rn):
+		"""Vote."""
+
+		self.votedPlayerId = integer_from_raw_input(flagLimit = 1, limitMin = 0, limitMax = TOTAL_PLAYERS)
+	
+	def take_effect(self, p):
+		"""Take effect of the Referee."""
+
+		if self.toVote == 1 and self.votedPlayerId != 0:
+			self.votedPlayerIdx = find_player_by_id(p, self.votedPlayerId)
+
+			p[self.votedPlayerIdx].state = 0
+		else:
+			self.votedPlayerIdx = -1
+
+		if self.toFlush == 1:
+			flush_players(p)
+
 class Peasant(Player):
 	"""Class for peasant."""
 	def __init__(self, id):
 		super(Peasant, self).__init__(id, ROLE_TYPE_PEASANT, ROLE_PEASANT, "Peasant")
 
-	def perform(self, rn):
+	def perform(self, p, rn):
 		"""Perform the action of peasant."""
+
+	def take_effect(self, p):
+		"""Take effect of the Peasant."""
 
 
 class Wolf(Player):
@@ -222,7 +272,9 @@ class Wolf(Player):
 		self.lineFirstRound  = "Please check your teammates."
 		self.lineNormalRound = "Please designate which one do you want to kill."
 
-	def perform(self, rn):
+		self.toBeKilled = 0 # The selected killed player id.
+
+	def perform(self, p, rn):
 		"""Perform the action of the wolf man."""
 
 		print "Night No. %d." % (rn)
@@ -237,12 +289,15 @@ class Wolf(Player):
 
 		print "Are you sure? Please close your eyes."
 
-		val = integer_from_raw_input(flagLimit = 1, limitMin = 0, limitMax = TOTAL_PLAYERS)
+		self.toBeKilled = integer_from_raw_input(flagLimit = 1, limitMin = 0, limitMax = TOTAL_PLAYERS)
 
-		val = find_player_by_id(players, val)
+	def take_effect(self, p):
+		"""Take effect of the Wolfman."""
 
-		if val != -1:
-			players[val].set_kill()
+		idx = find_player_by_id(p, self.toBeKilled)
+
+		if idx != -1:
+			p[idx].set_kill()
 
 		
 
@@ -254,7 +309,10 @@ class Prophet(Player):
 		self.lineFirstRound  = "This gesture means wolf man, and this means not. Do you understand?" 
 		self.lineNormalRound = "Which player do you want to verify?"
 
-	def perform(self, rn):
+		self.idChecked   = 0  # The player id the Prophet want to check.
+		self.checkResult = "" # The check result messange.
+
+	def perform(self, p, rn):
 		"""Perform the action of the prophet."""
 
 		print "Night No. %d." % (rn)
@@ -273,26 +331,33 @@ class Prophet(Player):
 		if self.state == 0:
 			print "(*** The Prophet is dead. ***)"
 
-		val = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
+		self.idChecked = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
 
-		id = find_player_by_id(players, val)
+		idx = find_player_by_id(p, self.idChecked)
 
 		print "This player's result is: (Make the gesture)"
 		print " "
 
 		if self.state == 1:
-			if players[id].type == ROLE_TYPE_WOLF:
-				print "*** Wolf man. ***"
+			if p[idx].type == ROLE_TYPE_WOLF:
+				self.checkResult = "*** Wolf man. ***"
 			else:
-				print "*** Not a wolf man. ***"
+				self.checkResult = "*** Not a wolf man. ***"
 		else:
-			print "(*** The Prophet is dead. No result will be shown. ***)"
+			self.checkResult = "(*** The Prophet is dead. No result will be shown. ***)"
+
+		print self.checkResult
 
 		print " "
 
 		print "Please close your eyes."
 
 		str = raw_input("Press Enter.")
+
+	def take_effect(self, p):
+		"""Take effect of the Prophet."""
+
+
 
 
 class Witch(Player):
@@ -302,6 +367,11 @@ class Witch(Player):
 
 		self.haveUsedAntidote = 0
 		self.haveUsedPoison   = 0
+		self.killedIdx        = -1
+		self.toUseAntidote    = 0
+		self.toUsePoison      = 0
+		self.toUsePoisonPlayerId = 0
+		self.currentRoundUseAntidote = 0
 
 	def use_antidote(self):
 		"""Mark the use of antidote."""
@@ -313,7 +383,7 @@ class Witch(Player):
 
 		self.haveUsedPoison = 1
 		
-	def perform(self, rn):
+	def perform(self, p, rn):
 		"""Perform the action of the witch."""
 
 		print "Night No. %d." % (rn)
@@ -327,14 +397,16 @@ class Witch(Player):
 		if self.state == 0:
 			print "(*** The Witch is dead. ***)"
 
-		killedIdx = find_killed(players)
+		self.killedIdx = find_killed(p)
 
 		print "Last night, this player was killed by the wolf man."
 
-		if self.haveUsedAntidote == 1 or killedIdx < 0:
+		if self.haveUsedAntidote == 1 or self.killedIdx < 0:
 			print "(*** DO NOT SHOW THE DEAD PLAYER'S ID ***)"
 		else:
-			print "(The killed player id is %d.)" % (players[killedIdx].id)
+			print "(The killed player id is %d.)" % (p[self.killedIdx].id)
+			if p[self.killedIdx].id == self.id:
+				print "(The Witch is killed this night!)"
 
 		print "You have a bottle of antidote and a bottle of poison."
 
@@ -342,19 +414,14 @@ class Witch(Player):
 
 		print "Are you sure?"
 
-		currentRoundUseAntidote = 0
+		self.currentRoundUseAntidote = 0
 
 		val = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = 2)
 
 		if val == 1 and self.haveUsedAntidote == 0:
-			# players[killedIdx].clear_kill()
-			players[killedIdx].set_saved()
-
-			self.haveUsedAntidote = 1
-			currentRoundUseAntidote = 1
-
+			self.toUseAntidote = 1
 		elif val == 2:
-			pass
+			self.toUseAntidote = 0
 		else:
 			print "(*** Error! ***)"
 
@@ -370,13 +437,35 @@ class Witch(Player):
 
 		val2 = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
 
-		val2 = find_player_by_id(players, val2)
+		if val1 == 1:
+			self.toUsePoison = 1
+		else:
+			self.toUsePoison = 0
 
-		if val1 == 1 and self.haveUsedPoison == 0 and currentRoundUseAntidote == 0:
-			players[val2].set_poison()
-			self.haveUsedPoison = 1
+		self.toUsePoisonPlayerId = val2
+			
 
 		print "Please close your eyes."
+
+	def take_effect(self, p):
+		"""Take effect of the Witch."""
+
+		if self.toUseAntidote == 1:
+			p[self.killedIdx].set_saved()
+
+			self.haveUsedAntidote = 1
+			self.currentRoundUseAntidote = 1
+
+		if self.toUsePoison == 1:
+			if self.haveUsedPoison == 0 and self.currentRoundUseAntidote == 0:
+				idx = find_player_by_id(p, self.toUsePoisonPlayerId)
+
+				p[idx].set_poison()
+				self.haveUsedPoison = 1
+
+		self.currentRoundUseAntidote = 0
+
+
 
 class Hunter(Player):
 	"""Class for the hunter"""
@@ -388,10 +477,13 @@ class Hunter(Player):
 
 		self.huntTaken = 0
 
+		self.toHunt         = 0
+		self.toHuntPlayerId = 0
+
 	def set_hunt(self):
 		self.huntTaken = 1
 
-	def perform(self, rn):
+	def perform(self, p, rn):
 		"""Perform the action of the hunter."""
 
 		if self.huntTaken == 1:
@@ -436,24 +528,19 @@ class Hunter(Player):
 			if self.poisoned == 0:
 				if self.killed == 1 and val == 1:
 					if self.guarded == 0 and self.saved == 0:
-						self.huntTaken = 1
+						self.toHunt = 1
 					elif self.guarded == 1 and self.saved == 1:
-						self.huntTaken = 1
+						self.toHunt = 1
 
 		print "On which player do you want to take the hunt?"
 		print "Are you sure?"
 
-		val = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
-
-		if self.huntTaken == 1:
-			val = find_player_by_id(players, val)
-
-			players[val].set_hunt()
+		self.toHuntPlayerId = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
 
 		print "Please close your eyes."
 
 
-	def perform_daylight(self, rn):
+	def perform_daylight(self, p, rn):
 		"""Perform the action of the hunter in the day light."""
 
 		print "Night No. %d." % (rn)
@@ -469,14 +556,20 @@ class Hunter(Player):
 		if val == 1:
 			print "On which player do you want to take the hunt?"
 			print "Are you sure?"
+			self.toHunt = 1
+			self.toHuntPlayerId = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
+		else:
+			self.toHunt = 0
 
-			val = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
+	def take_effect(self, p):
+		"""Take effect of the Hunter."""
 
-			val = find_player_by_id(players, val)
+		if self.toHunt == 1:
+			idx = find_player_by_id(p, self.toHuntPlayerId)
 
-			players[val].state = 0
+			p[idx].set_hunt()
 
-		self.huntTaken = 1
+			self.huntTaken = 1
 		
 
 class Guardian(Player):
@@ -486,7 +579,10 @@ class Guardian(Player):
 
 		self.lastGuarded = 0
 
-	def perform(self, rn):
+		self.toGuard         = 0
+		self.toGuardPlayerId = 0
+
+	def perform(self, p, rn):
 		"""Perform action of the guardian."""
 
 		print "Night No. %d." % (rn)
@@ -506,45 +602,49 @@ class Guardian(Player):
 		if self.state == 0:
 			print "(*** The Guardian is dead. Please enter 0. ***)"
 
-		val = self.lastGuarded
+		self.toGuardPlayerId = self.lastGuarded
 
-		while val == self.lastGuarded:
-			val = integer_from_raw_input(flagLimit = 1, limitMin = 0, limitMax = TOTAL_PLAYERS)
+		self.toGuard = 1
 
-			if val == self.lastGuarded and val != 0:
+		while self.toGuardPlayerId == self.lastGuarded:
+			self.toGuardPlayerId = integer_from_raw_input(flagLimit = 1, limitMin = 0, limitMax = TOTAL_PLAYERS)
+
+			if self.toGuardPlayerId == self.lastGuarded and self.toGuardPlayerId != 0:
 				print "Please select a different player. This player has been guarded last night."
-			elif val == self.lastGuarded and val == 0:
+			elif self.toGuardPlayerId == self.lastGuarded and self.toGuardPlayerId == 0:
+				self.toGuard = 0
 				break
-
-		if val != 0 and self.state == 1:
-			idx = find_player_by_id(players, val)
-			players[idx].set_guard()
-
-		self.lastGuarded = val
 
 		print "Please close your eyes."
 
+	def take_effect(self, p):
+		"""Take effect the Guardian."""
+
+		if self.toGuard == 1:
+			idx = find_player_by_id(p, self.toGuardPlayerId)
+			p[idx].set_guard()
+
+		self.lastGuarded = self.toGuardPlayerId
 
 class Sheriff(Player):
 	"""Class for the Sheriff"""
 	def __init__(self, id):
 		super(Sheriff, self).__init__(id, ROLE_TYPE_DUMMY, ROLE_SHERIFF, "Sheriff")
 
+		self.reElect = 0
+
 		self.idx = -1
 		self.dead = 0
 
+		self.dayTalkStart = 0
+
 	def elect(self, p):
 		print "The elected Sheriff is (input 0 for no Sheriff.)"
-		p[self.idx].isSheriff = 0
 
 		val = integer_from_raw_input(flagLimit = 1, limitMin = 0, limitMax = TOTAL_PLAYERS)
 		self.set_player_id(val)
 
-		if val != 0:
-			playerIdx = find_player_by_id(p, val)
-			self.set_palyer_idx(playerIdx)
-			p[playerIdx].isSheriff = 1
-
+		self.reElect = 1
 
 	def set_player_id(self, id):
 		self.id = id
@@ -552,12 +652,47 @@ class Sheriff(Player):
 	def set_palyer_idx(self, idx):
 		self.idx = idx
 
-	def perform(self, rn):
+	def perform(self, p, rn):
 		print "Let the Sheriff decide the staring player."
+
+		self.dayTalkStart = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
 		
-	def perform_dead(self, rn):
+	def perform_dead(self, p, rn):
 		print "Let the Sheriff select the new Sheriff."
 
+	def take_effect(self, p):
+		"""Take effect of the Sheriff."""
+
+		if self.reElect == 1:
+			p[self.idx].isSheriff = 0
+
+			if self.id != 0:
+				playerIdx = find_player_by_id(p, self.id)
+				self.set_palyer_idx(playerIdx)
+				p[playerIdx].isSheriff = 1
+
+			self.reElect = 0
+
+
+class action(object):
+	"""docstring for action"""
+	def __init__(self, nDay, bNight, player):
+		self.nDay   = nDay
+		self.bNight = bNight
+		self.player = deepcopy(player)
+
+		self.playerList  = 0
+		self.actionTaken = 0
+
+	def take_action(self, playerList, flagSurpassState = 0):
+		"""Take the action"""
+
+		self.playerList = deepcopy(playerList)
+
+		if self.player.state == 1 or flagSurpassState == 1:
+			self.player.take_effect(self.playerList)
+			self.actionTaken = 1
+		
 		
 def check_game_status(p):
 	"""Check the status of the game. 0 for end of game. 1 for game could continue."""
@@ -627,20 +762,20 @@ def show_last_night_info(p):
 	print "Last night ..."
 
 	if idxKilled != -1:
-		print "Player No. %d was dead." % (players[idxKilled].id)
+		print "Player No. %d was dead." % (p[idxKilled].id)
 
 	if idxPoisoned != -1:
-		print "Player No. %d was dead." % (players[idxPoisoned].id)
+		print "Player No. %d was dead." % (p[idxPoisoned].id)
 
 	if idxHunted != -1:
-		print "Player No. %d was dead (Hunted by the Hunter)." % (players[idxHunted].id)
+		print "Player No. %d was dead (Hunted by the Hunter)." % (p[idxHunted].id)
 
 		idxHunter = find_player_by_role(p, ROLE_HUNTER)
 
-		print "*** The hunter is Player No. %d." % (players[idxHunter].id)
+		print "*** The hunter is Player No. %d." % (p[idxHunter].id)
 
 	if idxDoubleEffect != -1:
-		print "Player No. %d was dead." % (players[idxDoubleEffect].id)
+		print "Player No. %d was dead." % (p[idxDoubleEffect].id)
 
 	if idxKilled == -1 and idxPoisoned == -1 and idxHunted == -1:
 		print "Was a peaceful night."
@@ -696,8 +831,17 @@ if __name__ == '__main__':
 	players[10] = Guardian(seq[10])
 	players[11] = Hunter(seq[11])
 
+	# Action list
+	dummyPlayer = Player(0, -1, -1, "Dummy")
+	dummyPlayer.state = 0
+	
+	actionInitial = action(0, 1, dummyPlayer)
+	actionInitial.take_action(players)
+	actionList = [actionInitial]
+
 	# The Sheriff
 	sh = Sheriff(SHERIFF_ID)
+	rf = Referee(REFEREE_ID)
 
 	print_delimiter("#")
 
@@ -724,7 +868,10 @@ if __name__ == '__main__':
 	while sta == 1:
 		roundNumber = roundNumber + 1
 
-		sta = check_game_status(players)
+		# Find the Wolfman again.
+		idxOneWolf  = find_player_by_role(actionList[-1].playerList, ROLE_WOLF)
+
+		sta = check_game_status(actionList[-1].playerList)
 
 		# ==================== Night. ==========================
 
@@ -733,22 +880,34 @@ if __name__ == '__main__':
 		# Guardian action.
 
 		print_delimiter("#")
-		players[idxGuardian].perform(roundNumber)
+		actionList[-1].playerList[idxGuardian].perform(actionList[-1].playerList, roundNumber)
+
+		actionList.append(action(roundNumber, 1, actionList[-1].playerList[idxGuardian]))
+		actionList[-1].take_action(actionList[-2].playerList)
 
 		# Wolf men action.
 
 		print_delimiter("#")
-		players[idxOneWolf].perform(roundNumber)
+		actionList[-1].playerList[idxOneWolf].perform(actionList[-1].playerList, roundNumber)
+
+		actionList.append(action(roundNumber, 1, actionList[-1].playerList[idxOneWolf]))
+		actionList[-1].take_action(actionList[-2].playerList)
 
 		# Prophet action.
 
 		print_delimiter("#")
-		players[idxProphet].perform(roundNumber)
+		actionList[-1].playerList[idxProphet].perform(actionList[-1].playerList, roundNumber)
+
+		actionList.append(action(roundNumber, 1, actionList[-1].playerList[idxProphet]))
+		actionList[-1].take_action(actionList[-2].playerList)
 
 		# Witch action.
 
 		print_delimiter("#")
-		players[idxWitch].perform(roundNumber)
+		actionList[-1].playerList[idxWitch].perform(actionList[-1].playerList, roundNumber)
+
+		actionList.append(action(roundNumber, 1, actionList[-1].playerList[idxWitch]))
+		actionList[-1].take_action(actionList[-2].playerList)
 
 		print_delimiter("#")
 
@@ -766,7 +925,12 @@ if __name__ == '__main__':
 			else:
 				print "in clockwise direction."
 
-			sh.elect(players)
+			sh.elect(actionList[-1].playerList)
+
+			actionList.append(action(roundNumber, 1, sh))
+			actionList[-1].take_action(actionList[-2].playerList)
+
+			sh = actionList[-1].player
 
 			print "Please close your eyes."
 			str = raw_input()
@@ -774,19 +938,23 @@ if __name__ == '__main__':
 		# Hunter action.
 
 		print_delimiter("#")
-		if players[idxHunter].state == 0 and players[idxHunter].huntTaken == 1:
+		if actionList[-1].playerList[idxHunter].state == 0 \
+		and actionList[-1].playerList[idxHunter].huntTaken == 1:
 			pass
 		else:
-			players[idxHunter].perform(roundNumber)
+			actionList[-1].playerList[idxHunter].perform(actionList[-1].playerList, roundNumber)
+
+			actionList.append(action(roundNumber, 1, actionList[-1].playerList[idxHunter]))
+			actionList[-1].take_action(actionList[-2].playerList)
 
 		print_delimiter("#")
 
-		show_last_night_info(players)
-		show_debug_info(players, verbose)
+		show_last_night_info(actionList[-1].playerList)
+		show_debug_info(actionList[-1].playerList, verbose)
 
 		# ================== Day time. ===========================
 
-		sta = check_game_status(players)
+		sta = check_game_status(actionList[-1].playerList)
 
 		if sta == 0:
 			print "Game over!"
@@ -799,32 +967,46 @@ if __name__ == '__main__':
 		# ================= Change the Sheriff. =====================
 
 		if sh.id != 0:
-			if players[sh.idx].dead == 1:
-				sh.perform_dead(roundNumber)
+			if actionList[-1].playerList[sh.idx].dead == 1:
+				sh.perform_dead(actionList[-1].playerList, roundNumber)
 
-				sh.elect(players)
+				sh.elect(actionList[-1].playerList)
+
+				actionList.append(action(roundNumber, 1, sh))
+				actionList[-1].take_action(actionList[-2].playerList)
+
+				sh = actionList[-1].player
 
 		print_delimiter("#")
 
 		# ============== Sherfiff action. ========================
 		if sh.id != 0:
-			sh.perform(roundNumber)
+			sh.perform(actionList[-1].playerList, roundNumber)
+
+			actionList.append(action(roundNumber, 1, sh))
+			actionList[-1].take_action(actionList[-2].playerList)
+
+			sh = actionList[-1].player
 
 		# ============== Voting stage. ======================
 
 		print "Voting stage."
 
-		val = integer_from_raw_input(flagLimit = 1, limitMin = 0, limitMax = TOTAL_PLAYERS)
+		rf.vote(actionList[-1].playerList, roundNumber)
+		rf.set_vote()
+		rf.set_flush()
 
-		if val != 0:
-			id = find_player_by_id(players, val)
+		actionList.append(action(roundNumber, 1, rf))
+		actionList[-1].take_action(actionList[-2].playerList)
 
-			players[id].state = 0
+		rf = actionList[-1].player
 
-		flush_players(players)
-		show_debug_info(players, verbose)
+		rf.clear_flush()
+		rf.clear_vote()
 
-		sta = check_game_status(players)
+		show_debug_info(actionList[-1].playerList, verbose)
+
+		sta = check_game_status(actionList[-1].playerList)
 
 		if sta == 0:
 			print "Game over!"
@@ -832,16 +1014,24 @@ if __name__ == '__main__':
 		else:
 			print "Game continue."
 
-		if players[id].role == ROLE_HUNTER:
+		if actionList[-1].playerList[ rf.votedPlayerIdx ].role == ROLE_HUNTER:
 			print_delimiter("#")
 			print "The Hunter is voted. Let the hunter take the shot."
 
-			players[id].perform_daylight(roundNumber)
+			actionList[-1].playerList[ rf.votedPlayerIdx ].perform_daylight(actionList[-1].playerList, roundNumber)
 
-			flush_players(players)
-			show_debug_info(players, verbose)
+			actionList.append(action(roundNumber, 1, actionList[-1].playerList[idxHunter]))
+			actionList[-1].take_action(actionList[-2].playerList, flagSurpassState = 1)
 
-			sta = check_game_status(players)
+			rf.set_flush()
+			actionList.append(action(roundNumber, 1, rf))
+			actionList[-1].take_action(actionList[-2].playerList)
+			rf = actionList[-1].player
+			rf.clear_flush()
+
+			show_debug_info(actionList[-1].playerList, verbose)
+
+			sta = check_game_status(actionList[-1].playerList)
 
 			if sta == 0:
 				print "Game over!"
@@ -853,10 +1043,15 @@ if __name__ == '__main__':
 
 		if sh.id != 0:
 			print_delimiter("#")
-			if players[sh.idx].dead == 1:
-				sh.perform_dead(roundNumber)
+			if actionList[-1].playerList[sh.idx].dead == 1:
+				sh.perform_dead(actionList[-1].playerList, roundNumber)
 
-				sh.elect(players)
+				sh.elect(actionList[-1].playerList)
+
+				actionList.append(action(roundNumber, 1, sh))
+				actionList[-1].take_action(actionList[-2].playerList)
+
+				sh = actionList[-1].player
 
 		print_delimiter("#")
 
