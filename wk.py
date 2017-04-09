@@ -143,6 +143,11 @@ class Player(object):
 		self.hunted    = 0
 		self.isSheriff = 0
 
+		self.idx       = -1
+
+	def set_idx(self, idx):
+		self.idx = idx
+
 	def is_dead(self):
 		if self.poisoned == 1 or self.hunted == 1:
 			self.dead = 1
@@ -212,6 +217,9 @@ class Player(object):
 	def take_effect(self, p):
 		"""Take effect of the performed action."""
 
+	def get_info_string(self):
+		"""Return a string containing the informatin."""
+
 class Referee(Player):
 	"""Class of the Referee."""
 	def __init__(self, id):
@@ -219,6 +227,8 @@ class Referee(Player):
 	
 		self.toVote        = 0
 		self.votedPlayerId = 0
+		self.votedPlayerName = ""
+		self.votedPlayerIsSheriff = 0
 		self.toFlush       = 0
 		self.votedPlayerIdx = -1
 
@@ -246,22 +256,37 @@ class Referee(Player):
 			self.votedPlayerIdx = find_player_by_id(p, self.votedPlayerId)
 
 			p[self.votedPlayerIdx].state = 0
+
+			self.votedPlayerName = p[self.votedPlayerIdx].name
+			self.votedPlayerIsSheriff = p[self.votedPlayerIdx].isSheriff
 		else:
 			self.votedPlayerIdx = -1
+			self.votedPlayerName = "Nobody"
+			self.votedPlayerIsSheriff = 0
 
 		if self.toFlush == 1:
 			flush_players(p)
+
+	def get_info_string(self):
+		"""Return the info string of the Referee."""
+
+		str = "%s\n" % (self.name)
+
+		if self.toVote == 1:
+			temp = "Input vote result. The voted player id is %d(%s %d).\n" \
+			% (self.votedPlayerId, self.votedPlayerName, self.votedPlayerIsSheriff)
+			str += temp
+
+		if self.toFlush == 1:
+			temp = "%s (system) flush the states of the players.\n" % (self.name)
+			str += temp
+
+		return str
 
 class Peasant(Player):
 	"""Class for peasant."""
 	def __init__(self, id):
 		super(Peasant, self).__init__(id, ROLE_TYPE_PEASANT, ROLE_PEASANT, "Peasant")
-
-	def perform(self, p, rn):
-		"""Perform the action of peasant."""
-
-	def take_effect(self, p):
-		"""Take effect of the Peasant."""
 
 
 class Wolf(Player):
@@ -273,6 +298,8 @@ class Wolf(Player):
 		self.lineNormalRound = "Please designate which one do you want to kill."
 
 		self.toBeKilled = 0 # The selected killed player id.
+		self.toBeKilledName = ""
+		self.toBeKilledIsSheriff = 0
 
 	def perform(self, p, rn):
 		"""Perform the action of the wolf man."""
@@ -299,7 +326,22 @@ class Wolf(Player):
 		if idx != -1:
 			p[idx].set_kill()
 
-		
+			self.toBeKilledName = p[idx].name
+
+		# Copy specific properties.
+
+		p[self.idx].toBeKilled          = self.toBeKilled
+		p[self.idx].toBeKilledName      = self.toBeKilledName
+		p[self.idx].toBeKilledIsSheriff = self.toBeKilledIsSheriff
+
+	def get_info_string(self):
+		"""Return the info string of the Wolfman."""
+
+		str = "%s\nThe wolfmen decided to kill the player with id %d(%s %d).\n" \
+		% (self.name, self.toBeKilled, self.toBeKilledName, self.toBeKilledIsSheriff)
+
+		return str
+
 
 class Prophet(Player):
 	"""Class for prophet"""
@@ -357,7 +399,25 @@ class Prophet(Player):
 	def take_effect(self, p):
 		"""Take effect of the Prophet."""
 
+		# Copy specific properties.
 
+		p[self.idx].idChecked   = self.idChecked
+		p[self.idx].checkResult = self.checkResult
+
+	def get_info_string(self):
+		"""Return the info string of the Prophet."""
+
+		str = "%s(%2d %d)\n" % (self.name, self.id, self.isSheriff)
+
+		if self.state == 0:
+			temp = "The %s is dead.\n" % (self.name)
+			str += temp
+			return str
+
+		temp = "The checked player id is %d.\nResult: %s.\n" % (self.idChecked, self.checkResult)
+		str += temp
+
+		return str
 
 
 class Witch(Player):
@@ -371,7 +431,10 @@ class Witch(Player):
 		self.toUseAntidote    = 0
 		self.toUsePoison      = 0
 		self.toUsePoisonPlayerId = 0
+		self.toUsePoisonPlayerName = ""
+		self.toUsePoisonPlayerIsSheriff = 0
 		self.currentRoundUseAntidote = 0
+		self.isKilled = 0
 
 	def use_antidote(self):
 		"""Mark the use of antidote."""
@@ -407,6 +470,9 @@ class Witch(Player):
 			print "(The killed player id is %d.)" % (p[self.killedIdx].id)
 			if p[self.killedIdx].id == self.id:
 				print "(The Witch is killed this night!)"
+				self.isKilled = 1
+			else:
+				self.isKilled = 0
 
 		print "You have a bottle of antidote and a bottle of poison."
 
@@ -423,7 +489,7 @@ class Witch(Player):
 		elif val == 2:
 			self.toUseAntidote = 0
 		else:
-			print "(*** Error! ***)"
+			self.toUseAntidote = 0
 
 		print "Do you want to use the poison? ( 1 - Use. 2 - Do not use.)"
 
@@ -437,7 +503,7 @@ class Witch(Player):
 
 		val2 = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
 
-		if val1 == 1:
+		if val1 == 1 and self.haveUsedPoison == 0 and self.toUseAntidote == 0:
 			self.toUsePoison = 1
 		else:
 			self.toUsePoison = 0
@@ -461,10 +527,76 @@ class Witch(Player):
 				idx = find_player_by_id(p, self.toUsePoisonPlayerId)
 
 				p[idx].set_poison()
+
+				self.toUsePoisonPlayerName = p[idx].name
+				self.toUsePoisonPlayerIsSheriff = p[idx].isSheriff
+
 				self.haveUsedPoison = 1
 
-		self.currentRoundUseAntidote = 0
+		# self.currentRoundUseAntidote = 0
 
+		# Copy specific properties.
+		p[self.idx].haveUsedAntidote           = self.haveUsedAntidote
+		p[self.idx].haveUsedPoison             = self.haveUsedPoison
+		p[self.idx].killedIdx                  = self.killedIdx
+		p[self.idx].toUseAntidote              = self.toUseAntidote
+		p[self.idx].toUsePoison                = self.toUsePoison
+		p[self.idx].toUsePoisonPlayerId        = self.toUsePoisonPlayerId
+		p[self.idx].toUsePoisonPlayerName      = self.toUsePoisonPlayerName
+		p[self.idx].toUsePoisonPlayerIsSheriff = self.toUsePoisonPlayerIsSheriff
+		p[self.idx].currentRoundUseAntidote    = self.currentRoundUseAntidote
+		p[self.idx].isKilled                   = self.isKilled
+
+
+	def get_info_string(self):
+		"""Return the info string of the Witch."""
+
+		str = "%s(%2d %d)\n" % (self.name, self.id, self.isSheriff)
+
+		if self.state == 0:
+			temp = "The %s is dead.\n" % (self.name)
+			str += temp
+			return str
+
+		if self.isKilled == 1:
+			temp = "The %s is killed this night. Cannot use the antidote to himself/herself.\n" % (self.name)
+			str += temp
+
+		if self.toUseAntidote == 0 and self.haveUsedAntidote == 1:
+			temp = "The antidote has been used. %s do not know which player is killed last night.\n" % (self.name)
+		else:
+			temp = "The antidote is ready.\n"
+
+		str += temp
+
+		if self.toUseAntidote == 1:
+			temp = "Use antidote.\n"
+		else:
+			temp = "Do not use antidote.\n"
+
+		str += temp
+
+		if self.toUsePoison == 0 and self.haveUsedPoison == 1:
+			temp = "The poison has been used.\n"
+			str += temp
+
+		if self.currentRoundUseAntidote == 1:
+			temp = "Current round had used antidote. \n"
+			str += temp
+		
+		if self.toUsePoison == 1 and self.haveUsedPoison == 1 and self.currentRoundUseAntidote == 0:
+			temp = "The poison is ready.\n"
+			str += temp
+
+		if self.toUsePoison == 1 and self.currentRoundUseAntidote == 0 and self.haveUsedPoison == 1:
+			temp = "Use the poison to player id %d(%s %d).\n" \
+			% (self.toUsePoisonPlayerId, self.toUsePoisonPlayerName, self.toUsePoisonPlayerIsSheriff)
+		else:
+			temp = "Do not use the poison.\n"
+
+		str += temp
+
+		return str
 
 
 class Hunter(Player):
@@ -475,10 +607,15 @@ class Hunter(Player):
 		self.lineFirstRound  = "This gesture means you can make the hunt."
 		self.lineNormalRound = "Your status at last night is this. "
 
+		self.canHunt = 0
+		self.daylight = 0
+
 		self.huntTaken = 0
 
 		self.toHunt         = 0
 		self.toHuntPlayerId = 0
+		self.toHuntPlayerName = ""
+		self.toHuntPlayerIsSheriff = 0
 
 	def set_hunt(self):
 		self.huntTaken = 1
@@ -510,27 +647,36 @@ class Hunter(Player):
 				if self.killed == 1:
 					if self.guarded == 0 and self.saved == 0:
 						print "(Make the gesture.)"
+						self.canHunt = 1
 					elif self.guarded == 1 and self.saved == 1:
 						print "(Make the gesture.)"
+						self.canHunt = 1
 					else:
 						print "(No gesture.)"
+						self.canHunt = 0
 				else:
 					print "(No gesture.)"
-
+					self.canHunt = 0
 		else:
 			print "(No gesture.)"
+			self.canHunt = 0
 
 		print "Do you want to take the hunt? ( 1 - Take. 2 - Do not take.)"
 
 		val = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = 2)
 
-		if self.state == 1:
-			if self.poisoned == 0:
-				if self.killed == 1 and val == 1:
-					if self.guarded == 0 and self.saved == 0:
-						self.toHunt = 1
-					elif self.guarded == 1 and self.saved == 1:
-						self.toHunt = 1
+		# if self.state == 1:
+		# 	if self.poisoned == 0:
+		# 		if self.killed == 1 and val == 1:
+		# 			if self.guarded == 0 and self.saved == 0:
+		# 				self.toHunt = 1
+		# 			elif self.guarded == 1 and self.saved == 1:
+		# 				self.toHunt = 1
+
+		if self.canHunt == 1 and val == 1:
+			self.toHunt = 1
+		else:
+			self.toHunt = 0
 
 		print "On which player do you want to take the hunt?"
 		print "Are you sure?"
@@ -543,11 +689,15 @@ class Hunter(Player):
 	def perform_daylight(self, p, rn):
 		"""Perform the action of the hunter in the day light."""
 
+		self.daylight = 1
+
 		print "Night No. %d." % (rn)
 
 		print self.name
 
 		self.show_id()
+
+		self.canHunt = 1
 
 		print "Do you want to take the hunt? ( 1 - Take. 2 - Do not take.)"
 
@@ -564,12 +714,54 @@ class Hunter(Player):
 	def take_effect(self, p):
 		"""Take effect of the Hunter."""
 
-		if self.toHunt == 1:
+		if self.canHunt == 1 and self.toHunt == 1:
 			idx = find_player_by_id(p, self.toHuntPlayerId)
 
 			p[idx].set_hunt()
 
+			self.toHuntPlayerName = p[idx].name
+			self.toHuntPlayerIsSheriff = p[idx].isSheriff
+
 			self.huntTaken = 1
+
+			# Copy specific properties.
+			p[self.idx].canHunt               = self.canHunt
+			p[self.idx].daylight              = self.daylight
+			p[self.idx].huntTaken             = self.huntTaken
+			p[self.idx].toHunt                = self.toHunt
+			p[self.idx].toHuntPlayerId        = self.toHuntPlayerId
+			p[self.idx].toHuntPlayerName      = self.toHuntPlayerName
+			p[self.idx].toHuntPlayerIsSheriff = self.toHuntPlayerIsSheriff
+
+	def get_info_string(self):
+		"""Return the info string of the Hunter."""
+
+		str = "%s(%2d %d)\n" % (self.name, self.id, self.isSheriff)
+
+		if self.state == 0 and self.huntTaken == 0:
+			temp = "The %s is dead.\n" % (self.name)
+			str += temp
+		
+		if self.daylight == 1:
+			temp = "The %s is voted in daylight.\n" % (self.name)
+			str += temp
+
+		if self.canHunt == 1:
+			temp = "Can hunt.\n"
+		else:
+			temp = "Cannot hunt.\n"
+
+		str += temp
+
+		if self.toHunt == 1:
+			temp = "The %s decided to hunt player id %d(%s %d).\n" \
+			% (self.name, self.toHuntPlayerId, self.toHuntPlayerName, self.toHuntPlayerIsSheriff)
+		else:
+			temp = "The %s decided to not take the shot.\n" % (self.name)
+
+		str += temp
+
+		return str
 		
 
 class Guardian(Player):
@@ -581,6 +773,8 @@ class Guardian(Player):
 
 		self.toGuard         = 0
 		self.toGuardPlayerId = 0
+		self.toGuardPlayerName = ""
+		self.toGuardPlayerIsSheriff = 0
 
 	def perform(self, p, rn):
 		"""Perform action of the guardian."""
@@ -624,7 +818,40 @@ class Guardian(Player):
 			idx = find_player_by_id(p, self.toGuardPlayerId)
 			p[idx].set_guard()
 
+			self.toGuardPlayerName = p[idx].name
+			self.toGuardPlayerIsSheriff = p[idx].isSheriff
+
 		self.lastGuarded = self.toGuardPlayerId
+
+		# Copy specific properties.
+		p[self.idx].lastGuarded            = self.lastGuarded
+		p[self.idx].toGuard                = self.toGuard
+		p[self.idx].toGuardPlayerId        = self.toGuardPlayerId
+		p[self.idx].toGuardPlayerName      = self.toGuardPlayerName
+		p[self.idx].toGuardPlayerIsSheriff = self.toGuardPlayerIsSheriff
+
+
+	def get_info_string(self):
+		"""Return the info string of the Guardian."""
+
+		str = "%s(%2d %d)\n" % (self.name, self.id, self.isSheriff)
+
+		if self.state == 0:
+			temp = "The %s is dead.\n" % (self.name)
+			str += temp
+			return str
+
+		if self.toGuard == 1:
+			temp = "The %s guarded player id %d(%s %d).\n" \
+			% (self.name, self.toGuardPlayerId, self.toGuardPlayerName, self.toGuardPlayerIsSheriff)
+			if self.toGuardPlayerId == self.id:
+				temp += "Self guarded.\n"
+		else:
+			temp = "The %s guarded nobody.\n" % (self.name)
+
+		str += temp
+
+		return str
 
 class Sheriff(Player):
 	"""Class for the Sheriff"""
@@ -632,11 +859,14 @@ class Sheriff(Player):
 		super(Sheriff, self).__init__(id, ROLE_TYPE_DUMMY, ROLE_SHERIFF, "Sheriff")
 
 		self.reElect = 0
+		self.newElected = 0
 
-		self.idx = -1
+		self.playerIdx = -1
 		self.dead = 0
 
 		self.dayTalkStart = 0
+
+		self.playerName = ""
 
 	def elect(self, p):
 		print "The elected Sheriff is (input 0 for no Sheriff.)"
@@ -650,29 +880,116 @@ class Sheriff(Player):
 		self.id = id
 
 	def set_palyer_idx(self, idx):
-		self.idx = idx
+		self.playerIdx = idx
 
 	def perform(self, p, rn):
+		self.newElected = 0
+
 		print "Let the Sheriff decide the staring player."
 
 		self.dayTalkStart = integer_from_raw_input(flagLimit = 1, limitMin = 1, limitMax = TOTAL_PLAYERS)
 		
 	def perform_dead(self, p, rn):
+		self.newElected = 0
+
 		print "Let the Sheriff select the new Sheriff."
+		self.dead = 1
 
 	def take_effect(self, p):
 		"""Take effect of the Sheriff."""
 
 		if self.reElect == 1:
-			p[self.idx].isSheriff = 0
+			p[self.playerIdx].isSheriff = 0
 
 			if self.id != 0:
-				playerIdx = find_player_by_id(p, self.id)
-				self.set_palyer_idx(playerIdx)
-				p[playerIdx].isSheriff = 1
+				self.playerIdx = find_player_by_id(p, self.id)
+				self.set_palyer_idx(self.playerIdx)
+				p[self.playerIdx].isSheriff = 1
+				self.playerName = p[self.playerIdx].name
+			else:
+				self.playerName = "Nobody"
+
+			self.newElected = 1
+			self.dead = 0
 
 			self.reElect = 0
 
+		# Copy specific properties.
+
+
+	def get_info_string(self):
+		"""Return the info string of the Sheriff."""
+
+		str = "%s(%2d %s)\n" % (self.name, self.id, self.playerName)
+
+		if self.dead == 1:
+			temp = "The %s was dead.\n" % (self.name)
+			str += temp
+
+		if self.newElected == 1:
+			temp = "Player id %d was elected to be the %s.\n" % (self.id, self.name)
+			if self.id == 0:
+				temp += "Actually no player is the %s.\n" % (self.name)
+
+			str += temp
+		
+		if self.dead == 0 and self.newElected == 0:
+			temp = "The %s selected player id %d to start talking.\n" % (self.name, self.dayTalkStart)
+			str += temp
+
+		return str
+
+
+class Dumper(object):
+	"""docstring for Dumper"""
+	def __init__(self):
+		self.path = ""
+
+	def set_dump_path(self, path):
+		"""Set the path of the dumper."""
+		self.path = path
+
+	def prepare(self):
+		"""Preparation before dumping operation."""
+
+	def finalize(self):
+		"""End the dumping operation."""
+		
+	def dump(self, str):
+		"""Dump str."""
+
+class DumperPlainText(Dumper):
+	"""Class DumperPlainText."""
+	def __init__(self, fn):
+		super(DumperPlainText, self).__init__()
+		self.path = fn
+		self.fileObj = 0
+		self.fileOpened = 0
+
+	def prepare(self):
+		"""Open the plain text file for out put. Overwite automatically."""
+		self.fileObj = open(self.path, 'w')
+		self.fileOpened = 1
+
+	def finalize(self):
+		"""Close the plain text file."""
+
+		if self.fileOpened == 1:
+			self.fileObj.close()
+			self.fileOpend = 0
+
+	def dump(self, str):
+		"""Dump str in to a plaine text file."""
+
+		if self.fileOpened == 0:
+			print "Error: The file in not opened."
+			return
+
+		temp = "\n##########################\n\n"
+
+		self.fileObj.write(temp)
+		self.fileObj.write(str)
+		
 
 class action(object):
 	"""docstring for action"""
@@ -691,6 +1008,11 @@ class action(object):
 
 		if self.player.state == 1 or flagSurpassState == 1:
 			self.player.take_effect(self.playerList)
+
+			# # Substitute.
+			# if self.player.idx != -1 and self.role != ROLE_SHERIFF:
+			# 	self.playerList[self.player.idx] = self.player
+
 			self.actionTaken = 1
 		
 		
@@ -775,9 +1097,9 @@ def show_last_night_info(p):
 		print "*** The hunter is Player No. %d." % (p[idxHunter].id)
 
 	if idxDoubleEffect != -1:
-		print "Player No. %d was dead." % (p[idxDoubleEffect].id)
+		print "Player No. %d was dead (Double effect)." % (p[idxDoubleEffect].id)
 
-	if idxKilled == -1 and idxPoisoned == -1 and idxHunted == -1:
+	if idxKilled == -1 and idxPoisoned == -1 and idxHunted == -1 and idxDoubleEffect == -1:
 		print "Was a peaceful night."
 
 def show_debug_info(p, verbose = 1):
@@ -831,6 +1153,25 @@ if __name__ == '__main__':
 	players[10] = Guardian(seq[10])
 	players[11] = Hunter(seq[11])
 
+	# The Sheriff
+	sh = Sheriff(SHERIFF_ID)
+	rf = Referee(REFEREE_ID)
+
+	print_delimiter("#")
+
+	oriPlayersInfo = ""
+
+	for i in range(TOTAL_PLAYERS):
+
+		idx = find_player_by_id(players, i+1)
+		players[idx].set_idx(idx)
+
+		temp = "No. %2d, %s\n" % (i+1, players[idx].name)
+
+		oriPlayersInfo += temp
+
+	print oriPlayersInfo
+
 	# Action list
 	dummyPlayer = Player(0, -1, -1, "Dummy")
 	dummyPlayer.state = 0
@@ -838,18 +1179,6 @@ if __name__ == '__main__':
 	actionInitial = action(0, 1, dummyPlayer)
 	actionInitial.take_action(players)
 	actionList = [actionInitial]
-
-	# The Sheriff
-	sh = Sheriff(SHERIFF_ID)
-	rf = Referee(REFEREE_ID)
-
-	print_delimiter("#")
-
-	for i in range(TOTAL_PLAYERS):
-
-		idx = find_player_by_id(players, i+1)
-
-		print "No. %2d, %s" % (i+1, players[idx].name)
 
 	print_delimiter("#")
 
@@ -930,7 +1259,7 @@ if __name__ == '__main__':
 			actionList.append(action(roundNumber, 1, sh))
 			actionList[-1].take_action(actionList[-2].playerList)
 
-			sh = actionList[-1].player
+			sh = deepcopy(actionList[-1].player)
 
 			print "Please close your eyes."
 			str = raw_input()
@@ -958,7 +1287,8 @@ if __name__ == '__main__':
 
 		if sta == 0:
 			print "Game over!"
-			sys.exit()
+			# sys.exit()
+			break
 
 		print_delimiter("#")
 
@@ -967,7 +1297,7 @@ if __name__ == '__main__':
 		# ================= Change the Sheriff. =====================
 
 		if sh.id != 0:
-			if actionList[-1].playerList[sh.idx].dead == 1:
+			if actionList[-1].playerList[sh.playerIdx].dead == 1:
 				sh.perform_dead(actionList[-1].playerList, roundNumber)
 
 				sh.elect(actionList[-1].playerList)
@@ -975,7 +1305,7 @@ if __name__ == '__main__':
 				actionList.append(action(roundNumber, 1, sh))
 				actionList[-1].take_action(actionList[-2].playerList)
 
-				sh = actionList[-1].player
+				sh = deepcopy(actionList[-1].player)
 
 		print_delimiter("#")
 
@@ -986,7 +1316,7 @@ if __name__ == '__main__':
 			actionList.append(action(roundNumber, 1, sh))
 			actionList[-1].take_action(actionList[-2].playerList)
 
-			sh = actionList[-1].player
+			sh = deepcopy(actionList[-1].player)
 
 		# ============== Voting stage. ======================
 
@@ -999,7 +1329,7 @@ if __name__ == '__main__':
 		actionList.append(action(roundNumber, 1, rf))
 		actionList[-1].take_action(actionList[-2].playerList)
 
-		rf = actionList[-1].player
+		rf = deepcopy(actionList[-1].player)
 
 		rf.clear_flush()
 		rf.clear_vote()
@@ -1010,11 +1340,12 @@ if __name__ == '__main__':
 
 		if sta == 0:
 			print "Game over!"
-			sys.exit()
+			# sys.exit()
+			break
 		else:
 			print "Game continue."
 
-		if actionList[-1].playerList[ rf.votedPlayerIdx ].role == ROLE_HUNTER:
+		if rf.votedPlayerIdx != -1 and actionList[-1].playerList[ rf.votedPlayerIdx ].role == ROLE_HUNTER:
 			print_delimiter("#")
 			print "The Hunter is voted. Let the hunter take the shot."
 
@@ -1026,7 +1357,7 @@ if __name__ == '__main__':
 			rf.set_flush()
 			actionList.append(action(roundNumber, 1, rf))
 			actionList[-1].take_action(actionList[-2].playerList)
-			rf = actionList[-1].player
+			rf = deepcopy(actionList[-1].player)
 			rf.clear_flush()
 
 			show_debug_info(actionList[-1].playerList, verbose)
@@ -1035,7 +1366,8 @@ if __name__ == '__main__':
 
 			if sta == 0:
 				print "Game over!"
-				sys.exit()
+				# sys.exit()
+				break
 			else:
 				print "Game continue."
 
@@ -1043,7 +1375,7 @@ if __name__ == '__main__':
 
 		if sh.id != 0:
 			print_delimiter("#")
-			if actionList[-1].playerList[sh.idx].dead == 1:
+			if actionList[-1].playerList[sh.playerIdx].dead == 1:
 				sh.perform_dead(actionList[-1].playerList, roundNumber)
 
 				sh.elect(actionList[-1].playerList)
@@ -1051,7 +1383,29 @@ if __name__ == '__main__':
 				actionList.append(action(roundNumber, 1, sh))
 				actionList[-1].take_action(actionList[-2].playerList)
 
-				sh = actionList[-1].player
+				sh = deepcopy(actionList[-1].player)
 
 		print_delimiter("#")
 
+	# Game over!
+
+	dp = DumperPlainText("./Replay.txt")
+
+	nActions = len(actionList)
+
+	dp.prepare()
+
+	for i in range(nActions):
+		if i == 0:
+			dp.dump(oriPlayersInfo)
+
+			continue
+
+		temp = "Day %d, Action %d\n" % (actionList[i].nDay, i)
+		dp.dump(temp)
+
+		dp.dump( actionList[i].player.get_info_string() )
+
+	dp.dump("Game over.")
+
+	dp.finalize()
