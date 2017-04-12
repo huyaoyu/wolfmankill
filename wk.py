@@ -1071,8 +1071,9 @@ def check_game_status(p):
 					nPeasants = nPeasants + 1
 					voteLimit_NonWolfmen = voteLimit_NonWolfmen + 1 + 0.5 * player.isSheriff
 				elif player.type == ROLE_TYPE_WIZARD:
-					nWizards = nWizards + 1
-					voteLimit_NonWolfmen = voteLimit_NonWolfmen + 1 + 0.5 * player.isSheriff
+					if player.role != ROLE_IDIOT:
+						nWizards = nWizards + 1
+						voteLimit_NonWolfmen = voteLimit_NonWolfmen + 1 + 0.5 * player.isSheriff
 				elif player.type == ROLE_TYPE_WOLF:
 					nWolves = nWolves + 1
 					voteLimit_Wolfmen = voteLimit_Wolfmen + 1 + 0.5 * player.isSheriff
