@@ -30,6 +30,7 @@ ROLE_WITCH     = 4
 ROLE_HUNTER    = 5
 ROLE_GUARDIAN  = 6
 ROLE_SHERIFF   = 7
+ROLE_IDIOT     = 8
 
 ROLE_TYPE_REFEREE = 0
 ROLE_TYPE_PEASANT = 1
@@ -40,9 +41,9 @@ ROLE_TYPE_DUMMY   = 4
 SHERIFF_ID = 0
 REFEREE_ID = 0
 
-NUM_WOLF    = 4
-NUM_PEASANT = 4
-NUM_WIZARD  = 4
+NUM_WOLF    = 5
+NUM_PEASANT = 5
+NUM_WIZARD  = 5
 
 TOTAL_PLAYERS = NUM_WOLF + NUM_PEASANT + NUM_WIZARD
 
@@ -255,7 +256,8 @@ class Referee(Player):
 		if self.toVote == 1 and self.votedPlayerId != 0:
 			self.votedPlayerIdx = find_player_by_id(p, self.votedPlayerId)
 
-			p[self.votedPlayerIdx].state = 0
+			if p[self.votedPlayerIdx].role != ROLE_IDIOT:
+				p[self.votedPlayerIdx].state = 0
 
 			self.votedPlayerName = p[self.votedPlayerIdx].name
 			self.votedPlayerIsSheriff = p[self.votedPlayerIdx].isSheriff
@@ -940,6 +942,42 @@ class Sheriff(Player):
 		return str
 
 
+class Idiot(Player):
+	"""Class Idiot."""
+	def __init__(self, id):
+		super(Idiot, self).__init__(id, ROLE_TYPE_WIZARD, ROLE_IDIOT, "Idiot")
+		self.beVoted = 0
+
+	def set_voted(self):
+		"""Set beVoted."""
+		self.beVoted = 1
+
+	def perform(self, p, rn):
+		"""Perform the Idiot."""
+
+		print "%s says: Come and bite me!" % (self.name)
+
+		str = raw_input('>>>')
+
+	def take_effect(self, p):
+		"""Take effect of the Idiot."""
+
+		self.state = 1
+
+		# Copy specific properties.
+		p[self.idx].beVoted = self.beVoted
+
+	def get_info_string(self):
+		"""Return info string of the Idiot."""
+		str = "%s(%2d %d)\n" % (self.name, self.id, self.isSheriff)
+
+		if self.beVoted == 1:
+			temp = "The %s is voted this round.\n" % (self.name)
+			str += temp
+
+		return str
+		
+
 class Dumper(object):
 	"""docstring for Dumper"""
 	def __init__(self):
@@ -1124,7 +1162,7 @@ if __name__ == '__main__':
 
 	verbose = 0
 
-	seq = range(1,13)
+	seq = range(1,TOTAL_PLAYERS+1)
 	random.shuffle(seq)
 
 	# players[ 0] = Peasant(4)
@@ -1140,18 +1178,38 @@ if __name__ == '__main__':
 	# players[10] = Guardian(2)
 	# players[11] = Hunter(7)
 
+	# 12 players.
+	# players[ 0] = Peasant(seq[0])
+	# players[ 1] = Peasant(seq[1])
+	# players[ 2] = Peasant(seq[2])
+	# players[ 3] = Peasant(seq[3])
+	# players[ 4] = Wolf(seq[4])
+	# players[ 5] = Wolf(seq[5])
+	# players[ 6] = Wolf(seq[6])
+	# players[ 7] = Wolf(seq[7])
+	# players[ 8] = Prophet(seq[8])
+	# players[ 9] = Witch(seq[9])
+	# players[10] = Guardian(seq[10])
+	# players[11] = Hunter(seq[11])
+
+	# 15 players.
 	players[ 0] = Peasant(seq[0])
 	players[ 1] = Peasant(seq[1])
 	players[ 2] = Peasant(seq[2])
 	players[ 3] = Peasant(seq[3])
-	players[ 4] = Wolf(seq[4])
+	players[ 4] = Peasant(seq[4])
+
 	players[ 5] = Wolf(seq[5])
 	players[ 6] = Wolf(seq[6])
 	players[ 7] = Wolf(seq[7])
-	players[ 8] = Prophet(seq[8])
-	players[ 9] = Witch(seq[9])
-	players[10] = Guardian(seq[10])
-	players[11] = Hunter(seq[11])
+	players[ 8] = Wolf(seq[8])
+	players[ 9] = Wolf(seq[9])
+
+	players[10] = Prophet(seq[10])
+	players[11] = Witch(seq[11])
+	players[12] = Guardian(seq[12])
+	players[13] = Hunter(seq[13])
+	players[14] = Idiot(seq[14])
 
 	# The Sheriff
 	sh = Sheriff(SHERIFF_ID)
@@ -1184,6 +1242,7 @@ if __name__ == '__main__':
 
 	# First round
 
+	idxIdiot    = find_player_by_role(players, ROLE_IDIOT)
 	idxGuardian = find_player_by_role(players, ROLE_GUARDIAN)
 	idxHunter   = find_player_by_role(players, ROLE_HUNTER)
 	idxProphet  = find_player_by_role(players, ROLE_PROPHET)
@@ -1344,6 +1403,21 @@ if __name__ == '__main__':
 			break
 		else:
 			print "Game continue."
+
+		# ================= Idiot is voted. =====================
+
+		if rf.votedPlayerIdx != -1 and actionList[-1].playerList[ rf.votedPlayerIdx ].role == ROLE_IDIOT:
+			print_delimiter("#")
+			print "The Idiot is voted."
+
+			actionList[-1].playerList[idxIdiot].set_voted()
+			actionList[-1].playerList[idxIdiot].perform(actionList[-1].playerList, roundNumber)
+
+			actionList.append(action(roundNumber, 1, actionList[-1].playerList[idxIdiot]))
+			actionList[-1].take_action(actionList[-2].playerList, flagSurpassState = 1)
+
+
+		# ================ Hunter is voted. =====================
 
 		if rf.votedPlayerIdx != -1 and actionList[-1].playerList[ rf.votedPlayerIdx ].role == ROLE_HUNTER:
 			print_delimiter("#")
